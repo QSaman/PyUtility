@@ -1,2 +1,2 @@
 # PyUtility
-Simple useful Python script
+Simple useful Python scripts.

@@ -5,7 +5,7 @@ Simple useful Python scripts.
 
 ## `file_organizer`
 
-You need to install [guessit](https://guessit.readthedocs.io/en/latest/). You can install it using:
+You need to install [GuessIt](https://guessit.readthedocs.io/en/latest/). You can install it using:
 
 ```
 $ pip install guessit

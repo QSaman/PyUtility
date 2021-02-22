@@ -5,12 +5,77 @@ import sys
 import mimetypes
 import argparse
 import string
+import ffmpeg
 
 from pathlib import Path, PurePath
 from abc import ABCMeta, abstractmethod
 from guessit import guessit
 
 file_organizers = dict()
+
+class MetaDataExtractor:
+    guessit_short_date_options = ['-Y', '--date-year-first', '-D', '--date-day-first']
+    def generate_new_name_field(self, my_dict):
+        def append(key):
+            val = my_dict.get(key)
+            return "" if val is None else "-" + val
+        
+        new_name = my_dict["title"]
+        new_name += append("date")
+        new_name += append("episode")
+        new_name += append("episode_title")
+        new_name += append("screen_size")
+        my_dict.update({"new_name" : new_name})
+        return new_name
+        
+    def get_new_name(self, file_path, suggested_name):
+        res = dict()
+        mime = mimetypes.guess_type(file_path)
+        if mime[0] == None or mime[0].lower().find("video") == -1:
+            res.update({"title": suggested_name})
+            self.generate_new_name_field(res)
+            return res
+        guessit_res = self.guess_it(suggested_name)
+        val = guessit_res.get("title")
+        if val is None:
+            sys.exit('Cannot extract title from "{0}"'.format(suggested_name))
+        res.update({"title" : val});
+        date_val = guessit_res.get("date")
+        if not date_val is None:
+            res.update({"date" : '{:%Y.%m.%d}'.format(date_val)})
+        int_val = guessit_res.get("episode")
+        if not int_val is None:
+            res.update({"episode" : "E" + str(int_val)})
+        val = guessit_res.get("episode_title")
+        if not val is None:
+            res.update({"episode_title" : val})
+        else:
+            val = guessit_res.get("alternative_title")
+            if not val is None:
+                res.update({"episode_title" : val})
+        val = guessit_res.get("screen_size")
+        if not val is None:
+            res.update({"screen_size" : val})
+        else:
+            probe = ffmpeg.probe(file_path)
+            video_stream = next((stream for stream in probe['streams'] if stream['codec_type'] == 'video'), None)
+            height = int(video_stream['height'])
+            res.update({"screen_size" : str(height) + "p"})
+            
+        self.generate_new_name_field(res)
+        return res
+
+    def guess_it(self, query_str):
+        match = re.search('\d\d.\d\d.\d\d', query_str) 
+        short_date = not match is None
+        if short_date and (args.guessit_options is None or  all(args.guessit_options.find(opt) == -1 for opt in self.guessit_short_date_options)):
+            print("""Short date detected in "{0}".
+            Please use short date options in guess it for avoiding ambiguity. Run guessit --help
+            for more information.""".format(query_str))
+            sys.exit(1)
+        if any(args.guessit_options.find(opt) != -1 for opt in ["-t", "--type"]):
+            sys.exit("You cannot use -t or --type for GuessIt!")
+        return guessit(query_str, args.guessit_options + " -t movie")
 
 class FileOrganizer(metaclass=ABCMeta):
     @abstractmethod
@@ -56,8 +121,7 @@ class SingleFile(FileOrganizer):
         level up and then remove that directory
         """
     
-# This class rename the file with the name of it's parent directory
-class RenameFileToParentDirectory(FileOrganizer):
+class RenameFile(FileOrganizer):
     
     def organize_file(self, dir_path):
         def mime_filter(my_file):
@@ -77,9 +141,7 @@ class RenameFileToParentDirectory(FileOrganizer):
                 print('Skipping "{0}"'.format(current_name))
                 continue
             dir_name = old_file.parent.name
-            if (not self.validate_dir_name(dir_name)):
-               sys.exit('directory name "{0}" doesn\'t match the regex'.format(dir_name))
-            new_name = self.extract_file_name(dir_name) + old_file.suffix
+            new_name = self.extract_file_name(old_file, dir_name) + old_file.suffix
             print('Converting "{0}" to "{1}" using directory name "{2}"'.format(current_name, new_name, dir_name))
             new_file = old_file.with_name(new_name)
             if not args.dry_run:
@@ -89,62 +151,26 @@ class RenameFileToParentDirectory(FileOrganizer):
     def is_current_file_name_valid_for_rename(self, current_file_name):
         pass
     
-    # If you're using a regex for directory name to extract a suitable name for file from directory name, you
-    # can use this method to make sure your regex covers all directory names in working directory
-    @abstractmethod
-    def validate_dir_name(self, dir_name):
-        pass
-    
     # You can use your magic here! You get the directory name and you can extract suitable name from it
     @abstractmethod
-    def extract_file_name(self, dir_name):
+    def extract_file_name(self, file_path, dir_name):
         pass
+
     
-class HexOfbfuscated(RenameFileToParentDirectory):
     
-    guessit_short_date_options = ['-Y', '--date-year-first', '-D', '--date-day-first']
+class HexOfbfuscated(RenameFile):
     
     def __init__(self):
         self.cache = dict()
+        self.meta_data_extractor = MetaDataExtractor()
     
     def is_current_file_name_valid_for_rename(self, current_file_name):
         stem = current_file_name.stem
         return True if args.force else all(c in string.hexdigits for c in stem)
     
-    def validate_dir_name(self, dir_name):
-        match = re.search('\d\d.\d\d.\d\d', dir_name) 
-        short_date = not match is None
-        if short_date and (args.guessit_options is None or  all(args.guessit_options.find(opt) == -1 for opt in self.guessit_short_date_options)):
-            print("""Short date detected in "{0}".
-            Please use short date options in guess it for avoiding ambiguity. Run guessit --help
-            for more information.""".format(dir_name))
-            sys.exit(1)
-        res = guessit(dir_name, args.guessit_options)
-        if res is None or res.get("title") is None:
-            return False
-        self.cache[dir_name] = res
-        return True
-    
-    def extract_file_name(self, dir_name):
-        res = self.cache[dir_name]
-        if res is None:
-            res = guessit(dir_name, args.guessit_options)
-        else:
-            self.cache.pop(dir_name)
-        new_name = res["title"]
-        date_val = res.get("date")
-        if not date_val is None:
-            new_name += "-" + '{:%Y.%m.%d}'.format(date_val)
-        int_val = res.get("episode")
-        if not int_val is None:
-            new_name += "-E" + str(int_val)
-        val = res.get("episode_title")
-        if not val is None:
-            new_name += "-" + val
-        val = res.get("screen_size")
-        if not val is None:
-            new_name += "-" + val
-        return new_name
+    def extract_file_name(self, file_path, dir_name):
+        res = self.meta_data_extractor.get_new_name(file_path, dir_name)
+        return res["new_name"]
     
     def description(self):
         return """

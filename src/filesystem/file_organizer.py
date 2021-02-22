@@ -44,9 +44,11 @@ class SingleFile(FileOrganizer):
                     print('"{0} exists. Aborting the operation"'.format(target_file))
                     sys.exit(1)
                 print('Movig "{0}" to "{1}"'.format(pure, target_file))
-                my_file.rename(target_file)
+                if not args.dry_run:
+                    my_file.rename(target_file)
                 print('Removing "{0}"'.format(my_dir))
-                my_dir.rmdir()
+                if not args.dry_run:
+                    my_dir.rmdir()
     
     def description(self):
         return """

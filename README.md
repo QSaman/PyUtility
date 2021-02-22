@@ -5,9 +5,13 @@ Simple useful Python scripts.
 
 ## `file_organizer`
 
-You need to install [GuessIt](https://guessit.readthedocs.io/en/latest/). You can install it using:
-
 ```
 $ pip install guessit
+$ pip install ffmpeg-python
 ```
-Visit this [website](https://guessit.readthedocs.io/en/latest/) for more information.
+
+For more information visit:
+
+* [GuessIt](https://guessit.readthedocs.io/en/latest/).
+* [ffmpeg-python](https://github.com/kkroening/ffmpeg-python)
+
